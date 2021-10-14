@@ -1,4 +1,4 @@
-classdef ConnectedArray < handle
+classdef ConnectedArray_new < handle
     %CONNECTEDARRAY Class that implements a connected array
     %   Detailed explanation goes here
     
@@ -19,7 +19,7 @@ classdef ConnectedArray < handle
     end
     
     methods
-        function obj = ConnectedArray(dx, dy, h, w, delta_d,er, dielectric_thickness)
+        function obj = ConnectedArray_new(dx, dy, h, w, delta_d,er, dielectric_thickness)
             %CONNECTEDARRAY Construct an instance of this class
             %   Detailed explanation goes here
             obj.dx = dx;
@@ -36,41 +36,105 @@ classdef ConnectedArray < handle
             if ~isempty(obj.ADL_up.Layers)
             obj.ADL_up.solve();
             end
+            obj.f = f;
             obj.theta = theta;
             obj.phi = phi;
-            Z_a = zeros(1,length(f));
-            for i = 1:length(f)
-                obj.f = f(i);
-                obj.ADL_up.Frequencies = f(i);
-                %METHOD1 Summary of this method goes here
-                %   Detailed explanation goes here
-                mx = -20:20;
-                my = -20:20;
+            Z_a = zeros(1,length(obj.f));
+            
+            mx = -20:20;
+            my = -20:20;
 
-                k = 2 * pi * obj.f ./ 3e8;
+            [MX, MY, F] = meshgrid(mx, my, obj.f);
+                        
+            K0 = 2 * pi * F ./ 3e8;
+            KX = K0 * sin(obj.theta) * cos(obj.phi);
+            KY = K0 * sin(obj.theta) * sin(obj.phi);
 
-                k_cart = k_to_cartesian(k, obj.theta, obj.phi);
-                kxm = k_cart(:,:,1) - 2 .* pi .* mx ./ obj.dx;
-                kym = k_cart(:,:,2) - 2 .* pi .* my ./ obj.dy;
+            KXM = KX - 2*pi.*MX ./ obj.dx;
+            KYM = KY - 2*pi.*MY ./ obj.dy;
 
-                if ~obj.CavityWalls
-                    kym_down = kym;
-                else
-                    kym_down = - 2 * pi * my ./ obj.dy;
-                end
-                [KXM, KYM] = meshgrid(kxm, kym);
-                [~, KYM_DOWN] = meshgrid(kxm, kym_down);
+            KYM_DOWN = KYM;
 
-                D_inf = obj.D_up(KXM, KYM) + obj.D_down(KXM, KYM_DOWN);
-                Z_a(i) = 1./obj.dx .* sum(-sinc(kxm .* obj.delta_d ./ 2./ pi).^2./D_inf);
+            if obj.CavityWalls
+                KYM_DOWN = - 2*pi.*MY ./ obj.dy;
             end
+
+            KRO_UP = sqrt(KXM .^ 2 + KYM .^ 2);
+            KRO_DOWN = sqrt(KXM.^2 + KYM_DOWN .^2);
+            
+            D_inf = obj.D_up(KXM, KYM, KRO_UP, F) + obj.D_down(KXM, KYM_DOWN, KRO_DOWN, F);
+            Z_a = 1./obj.dx .* sum(-sinc(KXM(1,:,:) .* obj.delta_d ./ 2./ pi).^2./D_inf, 2);
+            Z_a = (reshape(Z_a, [1,length(obj.f)]));
+            obj.ADL_up.Frequencies = f;
+
         end
         
-        function D = D_up(obj, KX, KY)
-            KRO = sqrt(KX .^ 2 + KY .^ 2);
+        function Z_a = activeInputImpedanceSynth(obj, f, theta ,phi, Z_up_TE, Z_up_TM)
+            if ~isempty(obj.ADL_up.Layers)
+%             obj.ADL_up.solve();
+            end
+            obj.f = f;
+            obj.theta = theta;
+            obj.phi = phi;
             
+            mx = -10:10;
+            my = -10:10;
 
-            [Z_up_TE, Z_up_TM] = obj.ADL_up.getInputImpedance_ConnectedArray(obj.f, obj.theta, obj.phi, KRO);
+            [MX, MY, F] = meshgrid(mx, my, obj.f);
+                        
+            K0 = 2 * pi * F ./ 3e8;
+            KX = K0 * sin(obj.theta) * cos(obj.phi);
+            KY = K0 * sin(obj.theta) * sin(obj.phi);
+
+            KXM = KX - 2*pi.*MX ./ obj.dx;
+            KYM = KY - 2*pi.*MY ./ obj.dy;
+
+            KYM_DOWN = KYM;
+
+            if obj.CavityWalls
+                KYM_DOWN = - 2*pi.*MY ./ obj.dy;
+            end
+
+            KRO_UP = sqrt(KXM .^ 2 + KYM .^ 2);
+            KRO_DOWN = sqrt(KXM.^2 + KYM_DOWN .^2);
+            
+            D_inf = obj.D_upSynth(KXM, KYM, KRO_UP, F, Z_up_TE, Z_up_TM) + obj.D_down(KXM, KYM_DOWN, KRO_DOWN, F);
+            Z_a = 1./obj.dx .* sum(-sinc(KXM(1,:,:) .* obj.delta_d ./ 2./ pi).^2./D_inf, 2);
+            Z_a = (reshape(Z_a, [1,length(obj.f)]));
+            obj.ADL_up.Frequencies = f;
+
+        end
+        
+        function [Z_up_TE, Z_up_TM] = getADLimpedance(obj, f, theta ,phi)
+            if ~isempty(obj.ADL_up.Layers)
+                obj.ADL_up.solve();
+            end
+            obj.f = f;
+            obj.theta = theta;
+            obj.phi = phi;
+            
+            mx = -10:10;
+            my = -10:10;
+
+            [MX, MY, F] = meshgrid(mx, my, obj.f);
+                        
+            K0 = 2 * pi * F ./ 3e8;
+            KX = K0 * sin(obj.theta) * cos(obj.phi);
+            KY = K0 * sin(obj.theta) * sin(obj.phi);
+
+            KXM = KX - 2*pi.*MX ./ obj.dx;
+            KYM = KY - 2*pi.*MY ./ obj.dy;
+            KRO_UP = sqrt(KXM .^ 2 + KYM .^ 2);
+            [Z_up_TE, Z_up_TM] = obj.ADL_up.getInputImpedance_ConnectedArray(F, obj.theta, obj.phi, KRO_UP);
+            Z_up_TE(isnan(Z_up_TE)) = 0;
+            Z_up_TM(isnan(Z_up_TM)) = 0;
+        end
+        
+        
+        
+        function D = D_up(obj,KX,KY, KRO, F)
+          
+           [Z_up_TE, Z_up_TM] = obj.ADL_up.getInputImpedance_ConnectedArray(F, obj.theta, obj.phi, KRO);
 %             [Z_up_TE, Z_up_TM] = obj.ADL_up.getInputImpedance(obj.f, obj.theta);
             Z_up_TE(isnan(Z_up_TE)) = 0;  %% is this the correct way to handle this?
             Z_up_TM(isnan(Z_up_TM)) = 0;  %% is this the correct way to handle this?
@@ -81,19 +145,30 @@ G_up = -1 .* ((1./Z_up_TE .* KX.^2 + 1./Z_up_TM .* KY.^2) ./ (KX.^2 + KY.^2));
             D = 1./obj.dy .* sum(G_up .* besselj(0, KY .* obj.w ./ 2), 1);
         end
         
-        function D = D_down(obj, KX, KY)
-            KRO = sqrt(KX .^ 2 + KY .^ 2);
-             [Z_down_TE, Z_down_TM] = obj.Zin_down(KRO);
+        function D = D_upSynth(obj,KX,KY, ~, ~, Z_up_TE, Z_up_TM)
+          
+%             [Z_up_TE, Z_up_TM] = obj.ADL_up.getInputImpedance(obj.f, obj.theta);
+            Z_up_TE(isnan(Z_up_TE)) = 0;  %% is this the correct way to handle this?
+            Z_up_TM(isnan(Z_up_TM)) = 0;  %% is this the correct way to handle this?
+
+
+            G_up = -1 .* ((1./Z_up_TE .* KX.^2 + 1./Z_up_TM .* KY.^2) ./ (KX.^2 + KY.^2));
+            
+            D = 1./obj.dy .* sum(G_up .* besselj(0, KY .* obj.w ./ 2), 1);
+        end
+        
+        function D = D_down(obj, KX, KY,KRO, F)
+             [Z_down_TE, Z_down_TM] = obj.Zin_down(KRO, F);
             G_down = -1 .* ((1./Z_down_TE .* KX.^2 + 1./Z_down_TM .* KY.^2) ./ (KX.^2 + KY.^2));
             
             D = 1./obj.dy .* sum(G_down .* besselj(0, KY .* obj.w ./ 2), 1);
         end
         
-        function [Zin_TE, Zin_TM] = Zin_down(obj, KRO)
+        function [Zin_TE, Zin_TM] = Zin_down(obj, KRO, F)
             % Transfer short through air section;
         
             % Air section
-            k0 = 2 .* pi .* obj.f ./ 3e8;  
+            k0 = 2 .* pi .* F ./ 3e8;  
             
             kz0 = -1j .* sqrt(- (k0.^2 - KRO.^2)); 
 
@@ -101,7 +176,7 @@ G_up = -1 .* ((1./Z_up_TE .* KX.^2 + 1./Z_up_TM .* KY.^2) ./ (KX.^2 + KY.^2));
             Z_TM_air = 120 .* pi  .* kz0 ./ k0;
             
             % Dielectric section
-            k_dielectric = sqrt(obj.er_back) .* 2 .* pi .* obj.f ./ 3e8;  
+            k_dielectric = sqrt(obj.er_back) .* 2 .* pi .* F ./ 3e8;  
             kz_dielectric = -1j .* sqrt(- (k_dielectric.^2 - KRO.^2)); 
 
             Z_TE_dielectric = 120 .* pi ./ sqrt(obj.er_back) .* k_dielectric ./ kz_dielectric;
